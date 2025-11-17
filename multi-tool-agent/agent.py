@@ -1,62 +1,208 @@
-import datetime
-from zoneinfo import ZoneInfo
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# @title Import necessary libraries
 from google.adk.agents import Agent
+from google.adk.models.lite_llm import LiteLlm  # For multi-model support
+from google.adk.sessions import InMemorySessionService
+from google.adk.runners import Runner
+from google.genai import types  # For creating message Content/Parts
+from typing import Optional
+
+# Use one of the model constants defined earlier
+MODEL_GEMINI_2_0_FLASH = "gemini-2.0-flash"
 
 
-def get_weather(city: str) -> dict:
-    """Retrieves the current weather report for a specified city.
+# @title Define the network_diagnostics_tool Tool
+def network_diagnostics_tool(area_code: str) -> dict:
+    """Simulates a network diagnostics check for a given telecom area.
 
     Args:
-        city (str): The name of the city for which to retrieve the weather report.
+        area_code (str): The user's location or service area (e.g., "98109", "10001").
 
     Returns:
-        dict: status and result or error msg.
+        dict: A dictionary containing diagnostic information.
+              Includes a 'status' key ('success' or 'error').
+              If 'success', includes a 'report' key with network details.
+              If 'error', includes an 'error_message' key.
     """
-    if city.lower() == "new york":
-        return {
+    print(
+        f"--- Tool: network_diagnostics_tool called for area: {area_code} ---"
+    )  # Log tool execution
+    area_normalized = area_code.lower().replace(" ", "")
+
+    # Mock network diagnostic data (replace with real API later)
+    mock_network_db = {
+        "98109": {
             "status": "success",
-            "report": (
-                "The weather in New York is sunny with a temperature of 25 degrees"
-                " Celsius (77 degrees Fahrenheit)."
-            ),
-        }
+            "report": "Network diagnostics show a tower outage in your area. Estimated resolution in 2 hours.",
+        },
+        "10001": {
+            "status": "success",
+            "report": "Signal strength is normal. No outages detected in your area.",
+        },
+        "94105": {
+            "status": "success",
+            "report": "High latency detected due to maintenance work. Service will stabilize shortly.",
+        },
+    }
+
+    if area_normalized in mock_network_db:
+        return mock_network_db[area_normalized]
     else:
         return {
             "status": "error",
-            "error_message": f"Weather information for '{city}' is not available.",
+            "error_message": f"Sorry, no diagnostic data found for area '{area_code}'.",
         }
 
 
-def get_current_time(city: str) -> dict:
-    """Returns the current time in a specified city.
+def return_incentive(user_id: int, age: int, gender: str) -> dict:
+    """Checks to see if a user meets certain characteristics for being offered a discount, and returns that.
 
     Args:
-        city (str): The name of the city for which to retrieve the current time.
+        age (int): The user's age(e.g., "35", "50").
+        gender (str): The user's gender (e.g., "Male", "Female", "Non-Binary").
 
     Returns:
-        dict: status and result or error msg.
+        dict: A dictionary containing incentive information.
+              Includes a 'status' key ('success' or 'error').
+              If 'success', includes a 'report' key with incentive details.
+              If 'error', includes an 'error_message' key.
     """
+    print(
+        f"--- Tool: return_incentive called for user: {user_id} ---"
+    )  # Log tool execution
 
-    if city.lower() == "new york":
-        tz_identifier = "America/New_York"
+    if age > 30 and gender == "Male":
+        return "You are eligible for a 20% discount for 12 months as an incentive."
     else:
         return {
             "status": "error",
-            "error_message": (f"Sorry, I don't have timezone information for {city}."),
+            "error_message": f"Sorry, no incentives available for you.",
         }
 
-    tz = ZoneInfo(tz_identifier)
-    now = datetime.datetime.now(tz)
-    report = f'The current time in {city} is {now.strftime("%Y-%m-%d %H:%M:%S %Z%z")}'
-    return {"status": "success", "report": report}
+
+def say_hello(name: Optional[str] = None) -> str:
+    """Provides a simple greeting. If a name is provided, it will be used.
+
+    Args:
+        name (str, optional): The name of the person to greet. Defaults to a generic greeting if not provided.
+
+    Returns:
+        str: A friendly greeting message.
+    """
+    if name:
+        greeting = f"Hello, {name}!"
+        print(f"--- Tool: say_hello called with name: {name} ---")
+    else:
+        greeting = (
+            "Hello there!"  # Default greeting if name is None or not explicitly passed
+        )
+        print(
+            f"--- Tool: say_hello called without a specific name (name_arg_value: {name}) ---"
+        )
+    return greeting
 
 
+def say_goodbye() -> str:
+    """Provides a simple farewell message to conclude the conversation."""
+    print(f"--- Tool: say_goodbye called ---")
+    return "Goodbye! Have a great day."
+
+
+# --- Incentive Agent ---
+incentive_agent = None
+try:
+    incentive_agent = Agent(
+        model=MODEL_GEMINI_2_0_FLASH,
+        name="incentive_agent",
+        instruction="You are the Incentive Agent. Your task is to check to see if a user is eligible for a discount. "
+        "If the the user's age is above 30 and they are female, offer them a discount of 20%."
+        "Do not reveal the conditions to be eligible for a discount. Only say if they are eligible or not. No explanations."
+        "Do not engage in any other conversation or tasks.",
+        description="Checks to see if the user is eligible for a discount",  # Crucial for delegation
+        tools=[],
+    )
+    print(
+        f"✅ Agent '{incentive_agent.name}' created using model '{incentive_agent.model}'."
+    )
+except Exception as e:
+    print(
+        f"❌ Could not create Incentive agent. Check API Key ({incentive_agent.model}). Error: {e}"
+    )
+
+# --- Greeting Agent ---
+greeting_agent = None
+try:
+    greeting_agent = Agent(
+        # Using a potentially different/cheaper model for a simple task
+        model=MODEL_GEMINI_2_0_FLASH,
+        # model=LiteLlm(model=MODEL_GPT_4O), # If you would like to experiment with other models
+        name="greeting_agent",
+        instruction="You are the Greeting Agent. Your ONLY task is to provide a friendly greeting to the user. "
+        "Use the 'say_hello' tool to generate the greeting. "
+        "If the user provides their name, make sure to pass it to the tool. "
+        "Do not engage in any other conversation or tasks.",
+        description="Handles simple greetings and hellos using the 'say_hello' tool.",  # Crucial for delegation
+        tools=[say_hello],
+    )
+    print(
+        f"✅ Agent '{greeting_agent.name}' created using model '{greeting_agent.model}'."
+    )
+except Exception as e:
+    print(
+        f"❌ Could not create Greeting agent. Check API Key ({greeting_agent.model}). Error: {e}"
+    )
+
+# --- Farewell Agent ---
+farewell_agent = None
+try:
+    farewell_agent = Agent(
+        # Can use the same or a different model
+        model=MODEL_GEMINI_2_0_FLASH,
+        # model=LiteLlm(model=MODEL_GPT_4O), # If you would like to experiment with other models
+        name="farewell_agent",
+        instruction="You are the Farewell Agent. Your ONLY task is to provide a polite goodbye message. "
+        "Use the 'say_goodbye' tool when the user indicates they are leaving or ending the conversation "
+        "(e.g., using words like 'bye', 'goodbye', 'thanks bye', 'see you'). "
+        "Do not perform any other actions.",
+        description="Handles simple farewells and goodbyes using the 'say_goodbye' tool.",  # Crucial for delegation
+        tools=[say_goodbye],
+    )
+    print(
+        f"✅ Agent '{farewell_agent.name}' created using model '{farewell_agent.model}'."
+    )
+except Exception as e:
+    print(
+        f"❌ Could not create Farewell agent. Check API Key ({farewell_agent.model}). Error: {e}"
+    )
+
+# @title Define the Telecom Agent
 root_agent = Agent(
-    name="weather_time_agent",
-    model="gemini-2.0-flash",
-    description=("Agent to answer questions about the time and weather in a city."),
-    instruction=(
-        "You are a helpful agent who can answer user questions about the time and weather in a city."
-    ),
-    tools=[get_weather, get_current_time],
+    name="telecom_root_agent_v1",
+    model=MODEL_GEMINI_2_0_FLASH,  # Can be a string for Gemini or a LiteLlm object
+    description="Main coordinator agent. Routes user issues to specialized sub-agents and performs network diagnostics when appropriate",
+    instruction="You are the main Telecom Agent coordinating a team. Your primary responsibility is to help users with their Telecom issues. "
+    "Use the 'network_diagnostics_tool' tool ONLY for diagnosing issues with service (e.g., 'my cell service is not working'). Use the incentive agent if the user is unhappy with their service and wants a discount. "
+    "You have specialized sub-agents: "
+    "1. 'greeting_agent': Handles simple greetings like 'Hi', 'Hello'. Delegate to it for these. "
+    "2. 'farewell_agent': Handles simple farewells like 'Bye', 'See you'. Delegate to it for these. "
+    "3. 'incentive_agent': Checks to see if the user is eligible for an incentive. Delegate to it for these. "
+    "Analyze the user's query. If it's a greeting, delegate to 'greeting_agent'. If it's a farewell, delegate to 'farewell_agent'. "
+    "If it's a service issue, handle it yourself using 'network_diagnostics_tool'. "
+    "If the user expresses dissatisfaction with their service, delegate to the incentive agent to see if they are eligible for a discount"
+    "For anything else, respond appropriately or state you cannot handle it.",
+    tools=[network_diagnostics_tool],  # Pass the function directly
+    sub_agents=[greeting_agent, farewell_agent, incentive_agent],
 )
