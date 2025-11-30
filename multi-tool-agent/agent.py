@@ -20,6 +20,10 @@ from google.adk.runners import Runner
 from google.genai import types  # For creating message Content/Parts
 from typing import Optional
 
+import pandas as pd
+
+df = pd.read_csv("telecom_churn.csv")
+
 # Use one of the model constants defined earlier
 MODEL_GEMINI_2_0_FLASH = "gemini-2.0-flash"
 
@@ -67,7 +71,7 @@ def network_diagnostics_tool(area_code: str) -> dict:
         }
 
 
-def return_incentive(user_id: int, age: int, gender: str) -> dict:
+def return_incentive(user_id: str, age: int, gender: str) -> dict:
     """Checks to see if a user meets certain characteristics for being offered a discount, and returns that.
 
     Args:
@@ -103,12 +107,10 @@ def say_hello(name: Optional[str] = None) -> str:
         str: A friendly greeting message.
     """
     if name:
-        greeting = f"Hello, {name}!"
+        greeting = f"Hello, {name}! I am an AI agent for the ACME telecom company. I can help you with questions about your service, check for network outages in your area and provide information about your plan. How can I help you?"
         print(f"--- Tool: say_hello called with name: {name} ---")
     else:
-        greeting = (
-            "Hello there!"  # Default greeting if name is None or not explicitly passed
-        )
+        greeting = "Hello there! I am an AI agent for the ACME telecom company. I can help you with questions about your service, check for network outages in your area and provide information about your plan. How can I help you?"  # Default greeting if name is None or not explicitly passed
         print(
             f"--- Tool: say_hello called without a specific name (name_arg_value: {name}) ---"
         )
@@ -120,6 +122,42 @@ def say_goodbye() -> str:
     print(f"--- Tool: say_goodbye called ---")
     return "Goodbye! Have a great day."
 
+
+def get_customer_info(user_id: str) -> str:
+    """Returns customer information."""
+    user_row = df[df["customerID"] == user_id]
+
+    if user_row.empty:
+        print("User not found")
+    else:
+        print(user_row)
+
+    user_dict = user_row.to_dict(orient="records")[0]
+
+    return user_dict
+
+
+# --- Information Agent ---
+information_agent = None
+try:
+    information_agent = Agent(
+        model=MODEL_GEMINI_2_0_FLASH,
+        name="information_agent",
+        instruction="You are the Customer information Agent. Your task is to get information about a customer using the get_customer_info tool"
+        "Ask the customer for their user id first. Then retrieve their information using the get_customer_tool"
+        "The tool returns a dictionary of information about the user."
+        "Using the retrieved information, you can answer questions that the user has about their account, such as Do i have paperless billing enabled?"
+        "Do not engage in any other conversation or tasks.",
+        description="Retrieves information about a user and answers any questions about it.",  # Crucial for delegation
+        tools=[get_customer_info],
+    )
+    print(
+        f"✅ Agent '{information_agent.name}' created using model '{information_agent.model}'."
+    )
+except Exception as e:
+    print(
+        f"❌ Could not create Information agent. Check API Key ({information_agent.model}). Error: {e}"
+    )
 
 # --- Incentive Agent ---
 incentive_agent = None
@@ -194,15 +232,20 @@ root_agent = Agent(
     model=MODEL_GEMINI_2_0_FLASH,  # Can be a string for Gemini or a LiteLlm object
     description="Main coordinator agent. Routes user issues to specialized sub-agents and performs network diagnostics when appropriate",
     instruction="You are the main Telecom Agent coordinating a team. Your primary responsibility is to help users with their Telecom issues. "
-    "Use the 'network_diagnostics_tool' tool ONLY for diagnosing issues with service (e.g., 'my cell service is not working'). Use the incentive agent if the user is unhappy with their service and wants a discount. "
+    "Use the 'network_diagnostics_tool' tool ONLY for diagnosing issues with service (e.g., 'my cell service is not working')."
+    "Use the incentive agent if the user is unhappy with their service and wants a discount. "
+    # "Use the get_customer_info tool to get information about the customer using their user id"
     "You have specialized sub-agents: "
     "1. 'greeting_agent': Handles simple greetings like 'Hi', 'Hello'. Delegate to it for these. "
     "2. 'farewell_agent': Handles simple farewells like 'Bye', 'See you'. Delegate to it for these. "
     "3. 'incentive_agent': Checks to see if the user is eligible for an incentive. Delegate to it for these. "
+    "4. 'information_agent': Retrieves information about a user. If the user has any questions about their current service, Delegate to it for these."
     "Analyze the user's query. If it's a greeting, delegate to 'greeting_agent'. If it's a farewell, delegate to 'farewell_agent'. "
     "If it's a service issue, handle it yourself using 'network_diagnostics_tool'. "
-    "If the user expresses dissatisfaction with their service, delegate to the incentive agent to see if they are eligible for a discount"
+    # "If the user has questions about their current service, ask them for their user id and handle it yourself using the get_customer_info tool."
+    "If the user has questions about their current service, delegeate it to the information agent."
+    "If the user expresses dissatisfaction with their service, delegate to the incentive agent to see if they are eligible for a discount."
     "For anything else, respond appropriately or state you cannot handle it.",
-    tools=[network_diagnostics_tool],  # Pass the function directly
-    sub_agents=[greeting_agent, farewell_agent, incentive_agent],
+    tools=[network_diagnostics_tool, get_customer_info],  # Pass the function directly
+    sub_agents=[greeting_agent, farewell_agent, incentive_agent, information_agent],
 )
