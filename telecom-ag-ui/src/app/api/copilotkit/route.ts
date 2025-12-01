@@ -1,3 +1,4 @@
+// app/api/copilotkit/route.ts
 import {
   CopilotRuntime,
   GoogleGenerativeAIAdapter,
@@ -7,13 +8,11 @@ import { NextRequest } from "next/server";
 
 // 1️⃣ LLM adapter: Google Gemini via GoogleGenerativeAIAdapter
 const serviceAdapter = new GoogleGenerativeAIAdapter({
-  // Optional: you can omit these and let it default,
-  // but it's nice to be explicit:
   model: process.env.GEMINI_MODEL || "gemini-2.0-flash",
   apiKey: process.env.GOOGLE_API_KEY,
 });
 
-// 2️⃣ Runtime: direct-to-LLM (no agents here)
+// 2️⃣ Runtime: Direct-to-LLM (no AG-UI / external agents here)
 const runtime = new CopilotRuntime({});
 
 // 3️⃣ Next.js API route
