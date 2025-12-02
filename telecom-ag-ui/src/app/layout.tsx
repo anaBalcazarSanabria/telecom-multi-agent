@@ -12,7 +12,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <CopilotKit runtimeUrl="/api/copilotkit" showDevConsole={false}>
+        <CopilotKit
+          runtimeUrl="/api/copilotkit"
+          agent="telecom_multi"
+        >
           {children}
         </CopilotKit>
       </body>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dotenv import load_dotenv
+
 load_dotenv()
 import json
 from enum import Enum
@@ -11,192 +12,264 @@ from fastapi import FastAPI
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 
 # ADK imports
-from google.adk.agents import LlmAgent
+from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.sessions import InMemorySessionService, Session
 from google.adk.runners import Runner
 from google.adk.events import Event, EventActions
 from google.adk.tools import FunctionTool, ToolContext
-from google.genai.types import Content, Part , FunctionDeclaration
+from google.genai.types import Content, Part, FunctionDeclaration
 from google.adk.models import LlmResponse, LlmRequest
 from google.genai import types
 
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from enum import Enum
+import pandas as pd
+
+df = pd.read_csv("telecom_churn.csv")
+
+# Use one of the model constants defined earlier
+MODEL_GEMINI_2_0_FLASH = "gemini-2.0-flash"
 
 
-class ProverbsState(BaseModel):
-    """List of the proverbs being written."""
-    proverbs: list[str] = Field(
-        default_factory=list,
-        description='The list of already written proverbs',
-    )
-
-
-def set_proverbs(
-  tool_context: ToolContext,
-  new_proverbs: list[str]
-) -> Dict[str, str]:
-    """
-    Set the list of provers using the provided new list.
+# @title Define the network_diagnostics_tool Tool
+def network_diagnostics_tool(area_code: str) -> dict:
+    """Simulates a network diagnostics check for a given telecom area.
 
     Args:
-        "new_proverbs": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "The new list of proverbs to maintain",
-        }
+        area_code (str): The user's location or service area (e.g., "98109", "10001").
 
     Returns:
-        Dict indicating success status and message
+        dict: A dictionary containing diagnostic information.
+              Includes a 'status' key ('success' or 'error').
+              If 'success', includes a 'report' key with network details.
+              If 'error', includes an 'error_message' key.
     """
-    try:
-        # Put this into a state object just to confirm the shape
-        new_state = { "proverbs": new_proverbs}
-        tool_context.state["proverbs"] = new_state["proverbs"]
-        return {"status": "success", "message": "Proverbs updated successfully"}
+    print(
+        f"--- Tool: network_diagnostics_tool called for area: {area_code} ---"
+    )  # Log tool execution
+    area_normalized = area_code.lower().replace(" ", "")
 
-    except Exception as e:
-        return {"status": "error", "message": f"Error updating proverbs: {str(e)}"}
+    # Mock network diagnostic data (replace with real API later)
+    mock_network_db = {
+        "98109": {
+            "status": "success",
+            "report": "Network diagnostics show a tower outage in your area. Estimated resolution in 2 hours.",
+        },
+        "10001": {
+            "status": "success",
+            "report": "Signal strength is normal. No outages detected in your area.",
+        },
+        "94105": {
+            "status": "success",
+            "report": "High latency detected due to maintenance work. Service will stabilize shortly.",
+        },
+    }
+
+    if area_normalized in mock_network_db:
+        return mock_network_db[area_normalized]
+    else:
+        return {
+            "status": "error",
+            "error_message": f"Sorry, no diagnostic data found for area '{area_code}'.",
+        }
 
 
+def return_incentive(user_id: str, age: int, gender: str) -> dict:
+    """Checks to see if a user meets certain characteristics for being offered a discount, and returns that.
 
-def get_weather(tool_context: ToolContext, location: str) -> Dict[str, str]:
-    """Get the weather for a given location. Ensure location is fully spelled out."""
-    return {"status": "success", "message": f"The weather in {location} is sunny."}
+    Args:
+        age (int): The user's age(e.g., "35", "50").
+        gender (str): The user's gender (e.g., "Male", "Female", "Non-Binary").
 
-
-
-def on_before_agent(callback_context: CallbackContext):
+    Returns:
+        dict: A dictionary containing incentive information.
+              Includes a 'status' key ('success' or 'error').
+              If 'success', includes a 'report' key with incentive details.
+              If 'error', includes an 'error_message' key.
     """
-    Initialize proverbs state if it doesn't exist.
+    print(
+        f"--- Tool: return_incentive called for user: {user_id} ---"
+    )  # Log tool execution
+
+    if age > 30 and gender == "Male":
+        return "You are eligible for a 20% discount for 12 months as an incentive."
+    else:
+        return {
+            "status": "error",
+            "error_message": f"Sorry, no incentives available for you.",
+        }
+
+
+def say_hello(name: Optional[str] = None) -> str:
+    """Provides a simple greeting. If a name is provided, it will be used.
+
+    Args:
+        name (str, optional): The name of the person to greet. Defaults to a generic greeting if not provided.
+
+    Returns:
+        str: A friendly greeting message.
     """
-
-    if "proverbs" not in callback_context.state:
-        # Initialize with default recipe
-        default_proverbs =     []
-        callback_context.state["proverbs"] = default_proverbs
-
-
-    return None
-
-
-
-
-# --- Define the Callback Function ---
-#  modifying the agent's system prompt to incude the current state of the proverbs list
-def before_model_modifier(
-    callback_context: CallbackContext, llm_request: LlmRequest
-) -> Optional[LlmResponse]:
-    """Inspects/modifies the LLM request or skips the call."""
-    agent_name = callback_context.agent_name
-    if agent_name == "ProverbsAgent":
-        proverbs_json = "No proverbs yet"
-        if "proverbs" in callback_context.state and callback_context.state["proverbs"] is not None:
-            try:
-                proverbs_json = json.dumps(callback_context.state["proverbs"], indent=2)
-            except Exception as e:
-                proverbs_json = f"Error serializing proverbs: {str(e)}"
-        # --- Modification Example ---
-        # Add a prefix to the system instruction
-        original_instruction = llm_request.config.system_instruction or types.Content(role="system", parts=[])
-        prefix = f"""You are a helpful assistant for maintaining a list of proverbs.
-        This is the current state of the list of proverbs: {proverbs_json}
-        When you modify the list of proverbs (wether to add, remove, or modify one or more proverbs), use the set_proverbs tool to update the list."""
-        # Ensure system_instruction is Content and parts list exists
-        if not isinstance(original_instruction, types.Content):
-            # Handle case where it might be a string (though config expects Content)
-            original_instruction = types.Content(role="system", parts=[types.Part(text=str(original_instruction))])
-        if not original_instruction.parts:
-            original_instruction.parts.append(types.Part(text="")) # Add an empty part if none exist
-
-        # Modify the text of the first part
-        modified_text = prefix + (original_instruction.parts[0].text or "")
-        original_instruction.parts[0].text = modified_text
-        llm_request.config.system_instruction = original_instruction
+    if name:
+        greeting = f"Hello, {name}! I am an AI agent for the ACME telecom company. I can help you with questions about your service, check for network outages in your area and provide information about your plan. How can I help you?"
+        print(f"--- Tool: say_hello called with name: {name} ---")
+    else:
+        greeting = "Hello there! I am an AI agent for the ACME telecom company. I can help you with questions about your service, check for network outages in your area and provide information about your plan. How can I help you?"  # Default greeting if name is None or not explicitly passed
+        print(
+            f"--- Tool: say_hello called without a specific name (name_arg_value: {name}) ---"
+        )
+    return greeting
 
 
-
-    return None
-
-
-
-
+def say_goodbye() -> str:
+    """Provides a simple farewell message to conclude the conversation."""
+    print(f"--- Tool: say_goodbye called ---")
+    return "Goodbye! Have a great day."
 
 
-# --- Define the Callback Function ---
-def simple_after_model_modifier(
-    callback_context: CallbackContext, llm_response: LlmResponse
-) -> Optional[LlmResponse]:
-    """Stop the consecutive tool calling of the agent"""
-    agent_name = callback_context.agent_name
-    # --- Inspection ---
-    if agent_name == "ProverbsAgent":
-        original_text = ""
-        if llm_response.content and llm_response.content.parts:
-            # Assuming simple text response for this example
-            if  llm_response.content.role=='model' and llm_response.content.parts[0].text:
-                original_text = llm_response.content.parts[0].text
-                callback_context._invocation_context.end_invocation = True
+def get_customer_info(user_id: str) -> str:
+    """Returns customer information."""
+    user_row = df[df["customerID"] == user_id]
 
-        elif llm_response.error_message:
-            return None
-        else:
-            return None # Nothing to modify
-    return None
+    if user_row.empty:
+        print("User not found")
+    else:
+        print(user_row)
+
+    user_dict = user_row.to_dict(orient="records")[0]
+
+    return user_dict
 
 
-proverbs_agent = LlmAgent(
-        name="ProverbsAgent",
-        model="gemini-2.5-flash",
-        instruction=f"""
-        When a user asks you to do anything regarding proverbs, you MUST use the set_proverbs tool.
-
-        IMPORTANT RULES ABOUT PROVERBS AND THE SET_PROVERBS TOOL:
-        1. Always use the set_proverbs tool for any proverbs-related requests
-        2. Always pass the COMPLETE LIST of proverbs to the set_proverbs tool. If the list had 5 proverbs and you removed one, you must pass the complete list of 4 remaining proverbs.
-        3. You can use existing proverbs if one is relevant to the user's request, but you can also create new proverbs as required.
-        4. Be creative and helpful in generating complete, practical proverbs
-        5. After using the tool, provide a brief summary of what you create, removed, or changed        7.
-
-        Examples of when to use the set_proverbs tool:
-        - "Add a proverb about soap" → Use tool with an array containing the existing list of proverbs with the new proverb about soap at the end.
-        - "Remove the first proverb" → Use tool with an array containing the all of the existing proverbs except the first one"
-        - "Change any proverbs about cats to mention that they have 18 lives" → If no proverbs mention cats, do not use the tool. If one or more proverbs do mention cats, change them to mention cats having 18 lives, and use the tool with an array of all of the proverbs, including ones that were changed and ones that did not require changes.
-
-        Do your best to ensure proverbs plausibly make sense.
-
-
-        IMPORTANT RULES ABOUT WEATHER AND THE GET_WEATHER TOOL:
-        1. Only call the get_weather tool if the user asks you for the weather in a given location.
-        2. If the user does not specify a location, you can use the location "Everywhere ever in the whole wide world"
-
-        Examples of when to use the get_weather tool:
-        - "What's the weather today in Tokyo?" → Use the tool with the location "Tokyo"
-        - "Whats the weather right now" → Use the location "Everywhere ever in the whole wide world"
-        - Is it raining in London? → Use the tool with the location "London"
-        """,
-        tools=[set_proverbs, get_weather],
-        before_agent_callback=on_before_agent,
-        before_model_callback=before_model_modifier,
-        after_model_callback = simple_after_model_modifier
+# --- Information Agent ---
+information_agent = None
+try:
+    information_agent = Agent(
+        model=MODEL_GEMINI_2_0_FLASH,
+        name="information_agent",
+        instruction="You are the Customer information Agent. Your task is to get information about a customer using the get_customer_info tool"
+        "Ask the customer for their user id first. Then retrieve their information using the get_customer_tool"
+        "The tool returns a dictionary of information about the user."
+        "Using the retrieved information, you can answer questions that the user has about their account, such as Do i have paperless billing enabled?"
+        "Do not engage in any other conversation or tasks.",
+        description="Retrieves information about a user and answers any questions about it.",  # Crucial for delegation
+        tools=[get_customer_info],
+    )
+    print(
+        f"✅ Agent '{information_agent.name}' created using model '{information_agent.model}'."
+    )
+except Exception as e:
+    print(
+        f"❌ Could not create Information agent. Check API Key ({information_agent.model}). Error: {e}"
     )
 
+# --- Incentive Agent ---
+incentive_agent = None
+try:
+    incentive_agent = Agent(
+        model=MODEL_GEMINI_2_0_FLASH,
+        name="incentive_agent",
+        instruction="You are the Incentive Agent. Your task is to check to see if a user is eligible for a discount. "
+        "If the the user's age is above 30 and they are female, offer them a discount of 20%."
+        "Do not reveal the conditions to be eligible for a discount. Only say if they are eligible or not. No explanations."
+        "Do not engage in any other conversation or tasks.",
+        description="Checks to see if the user is eligible for a discount",  # Crucial for delegation
+        tools=[],
+    )
+    print(
+        f"✅ Agent '{incentive_agent.name}' created using model '{incentive_agent.model}'."
+    )
+except Exception as e:
+    print(
+        f"❌ Could not create Incentive agent. Check API Key ({incentive_agent.model}). Error: {e}"
+    )
+
+# --- Greeting Agent ---
+greeting_agent = None
+try:
+    greeting_agent = Agent(
+        # Using a potentially different/cheaper model for a simple task
+        model=MODEL_GEMINI_2_0_FLASH,
+        # model=LiteLlm(model=MODEL_GPT_4O), # If you would like to experiment with other models
+        name="greeting_agent",
+        instruction="You are the Greeting Agent. Your ONLY task is to provide a friendly greeting to the user. "
+        "Use the 'say_hello' tool to generate the greeting. "
+        "If the user provides their name, make sure to pass it to the tool. "
+        "Do not engage in any other conversation or tasks.",
+        description="Handles simple greetings and hellos using the 'say_hello' tool.",  # Crucial for delegation
+        tools=[say_hello],
+    )
+    print(
+        f"✅ Agent '{greeting_agent.name}' created using model '{greeting_agent.model}'."
+    )
+except Exception as e:
+    print(
+        f"❌ Could not create Greeting agent. Check API Key ({greeting_agent.model}). Error: {e}"
+    )
+
+# --- Farewell Agent ---
+farewell_agent = None
+try:
+    farewell_agent = Agent(
+        # Can use the same or a different model
+        model=MODEL_GEMINI_2_0_FLASH,
+        # model=LiteLlm(model=MODEL_GPT_4O), # If you would like to experiment with other models
+        name="farewell_agent",
+        instruction="You are the Farewell Agent. Your ONLY task is to provide a polite goodbye message. "
+        "Use the 'say_goodbye' tool when the user indicates they are leaving or ending the conversation "
+        "(e.g., using words like 'bye', 'goodbye', 'thanks bye', 'see you'). "
+        "Do not perform any other actions.",
+        description="Handles simple farewells and goodbyes using the 'say_goodbye' tool.",  # Crucial for delegation
+        tools=[say_goodbye],
+    )
+    print(
+        f"✅ Agent '{farewell_agent.name}' created using model '{farewell_agent.model}'."
+    )
+except Exception as e:
+    print(
+        f"❌ Could not create Farewell agent. Check API Key ({farewell_agent.model}). Error: {e}"
+    )
+
+# @title Define the Telecom Agent
+root_agent = Agent(
+    name="telecom_root_agent_v1",
+    model=MODEL_GEMINI_2_0_FLASH,  # Can be a string for Gemini or a LiteLlm object
+    description="Main coordinator agent. Routes user issues to specialized sub-agents and performs network diagnostics when appropriate",
+    instruction="You are the main Telecom Agent coordinating a team. Your primary responsibility is to help users with their Telecom issues. "
+    "Use the 'network_diagnostics_tool' tool ONLY for diagnosing issues with service (e.g., 'my cell service is not working')."
+    "Use the incentive agent if the user is unhappy with their service and wants a discount. "
+    # "Use the get_customer_info tool to get information about the customer using their user id"
+    "You have specialized sub-agents: "
+    "1. 'greeting_agent': Handles simple greetings like 'Hi', 'Hello'. Delegate to it for these. "
+    "2. 'farewell_agent': Handles simple farewells like 'Bye', 'See you'. Delegate to it for these. "
+    "3. 'incentive_agent': Checks to see if the user is eligible for an incentive. Delegate to it for these. "
+    "4. 'information_agent': Retrieves information about a user. If the user has any questions about their current service, Delegate to it for these."
+    "Analyze the user's query. If it's a greeting, delegate to 'greeting_agent'. If it's a farewell, delegate to 'farewell_agent'. "
+    "If it's a service issue, handle it yourself using 'network_diagnostics_tool'. "
+    # "If the user has questions about their current service, ask them for their user id and handle it yourself using the get_customer_info tool."
+    "If the user has questions about their current service, delegeate it to the information agent."
+    "If the user expresses dissatisfaction with their service, delegate to the incentive agent to see if they are eligible for a discount."
+    "For anything else, respond appropriately or state you cannot handle it.",
+    tools=[network_diagnostics_tool, get_customer_info],  # Pass the function directly
+    sub_agents=[greeting_agent, farewell_agent, incentive_agent, information_agent],
+)
 # Create ADK middleware agent instance
-adk_proverbs_agent = ADKAgent(
-    adk_agent=proverbs_agent,
-    app_name="proverbs_app",
+adk_telecom_agent = ADKAgent(
+    adk_agent=root_agent,
+    app_name="agents",
     user_id="demo_user",
     session_timeout_seconds=3600,
-    use_in_memory_services=True
+    use_in_memory_services=True,
 )
 
 # Create FastAPI app
-app = FastAPI(title="ADK Middleware Proverbs Agent")
+app = FastAPI(title="ADK Middleware Telecom Agent")
 
 # Add the ADK endpoint
-add_adk_fastapi_endpoint(app, adk_proverbs_agent, path="/")
+add_adk_fastapi_endpoint(
+    app, adk_telecom_agent, path="/api/apps/multi-tool-agent/invoke"
+)
 
 if __name__ == "__main__":
     import os
