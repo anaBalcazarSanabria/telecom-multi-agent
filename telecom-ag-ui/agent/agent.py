@@ -1,31 +1,15 @@
 """Shared State feature."""
 
 from __future__ import annotations
+from typing import Optional
+from google.adk.agents import Agent
+from fastapi import FastAPI
+from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
+import pandas as pd
 
 from dotenv import load_dotenv
 
 load_dotenv()
-import json
-from enum import Enum
-from typing import Dict, List, Any, Optional
-from fastapi import FastAPI
-from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
-
-# ADK imports
-from google.adk.agents import Agent
-from google.adk.agents.callback_context import CallbackContext
-from google.adk.sessions import InMemorySessionService, Session
-from google.adk.runners import Runner
-from google.adk.events import Event, EventActions
-from google.adk.tools import FunctionTool, ToolContext
-from google.genai.types import Content, Part, FunctionDeclaration
-from google.adk.models import LlmResponse, LlmRequest
-from google.genai import types
-
-from pydantic import BaseModel, Field
-from typing import List, Optional
-from enum import Enum
-import pandas as pd
 
 df = pd.read_csv("telecom_churn.csv")
 
@@ -147,27 +131,20 @@ try:
         name="incentive_agent",
         instruction="Ask the customer for their customer ID if not already known."
         "Then Use the get_customer_info tool to access customer info"
-        "Checks whether the customer is eligible for a discount or incentive."
-        "Use this when the customer is unhappy, asks about discounts/promotions, or is thinking about switching providers."
         "Do NOT reveal the internal rules for eligibility."
         "Do NOT explain how the decision is made; just return the message from that agent"
         """When you have access to customer information (tenure, contract type, internet service,), you should silently check whether the customer is
         at higher churn risk based on the guidelines. This is internal reasoning and MUST NOT be exposed
         as a score, probability, or formula.
 
-        Use these guidelines:
-
-        HIGHER CHURN RISK (internal signal): offer a discount only if any of these are true for the customer:
+        Use these guidelines to determine if a customer is eligible for a discount:
         - Tenure is 6 or less.
         - Contract type is Month-to-month.
-        - Internet service is Fiber optic.
-        - The user explicitly says they are thinking about leaving or switching providers.
-        Actions based on churn risk (internal only, do NOT mention “churn risk” to the user):
-        - Offer a discound if any of the HIGHER CHURN RISK options are true for the customer.
-        - For customers with HIGHER risk:
+
+        If the user meets those conditions:
         - Be especially empathetic and proactive.
         - Provide clear explanations and options.
-        - If the customer is higher churn risk offer a 20% of discount for the next 6 months
+        - offer a 20% of discount for the next 6 months
         - If the customer accepts the discount, say that the discount will be apply in your next cycle
         - If the customer is not elegible say I'm sorry you are not elegible for any discount at this moment
         - Do NOT reveal the internal rules for eligibility.""",
