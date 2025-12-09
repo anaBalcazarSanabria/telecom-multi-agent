@@ -31,6 +31,7 @@ df = pd.read_csv("telecom_churn.csv")
 
 # Use one of the model constants defined earlier
 MODEL_GEMINI_2_0_FLASH = "gemini-2.0-flash"
+MODEL_GEMINI_3_PRO_PREVIEW = "gemini-3-pro-preview"
 
 
 # @title Define the network_diagnostics_tool Tool
@@ -73,32 +74,6 @@ def network_diagnostics_tool(area_code: str) -> dict:
         return {
             "status": "error",
             "error_message": f"Sorry, no diagnostic data found for area '{area_code}'.",
-        }
-
-
-def return_incentive(user_id: str, age: int, gender: str) -> dict:
-    """Checks to see if a user meets certain characteristics for being offered a discount, and returns that.
-
-    Args:
-        age (int): The user's age(e.g., "35", "50").
-        gender (str): The user's gender (e.g., "Male", "Female", "Non-Binary").
-
-    Returns:
-        dict: A dictionary containing incentive information.
-              Includes a 'status' key ('success' or 'error').
-              If 'success', includes a 'report' key with incentive details.
-              If 'error', includes an 'error_message' key.
-    """
-    print(
-        f"--- Tool: return_incentive called for user: {user_id} ---"
-    )  # Log tool execution
-
-    if age > 30 and gender == "Male":
-        return "You are eligible for a 20% discount for 12 months as an incentive."
-    else:
-        return {
-            "status": "error",
-            "error_message": f"Sorry, no incentives available for you.",
         }
 
 
@@ -170,12 +145,38 @@ try:
     incentive_agent = Agent(
         model=MODEL_GEMINI_2_0_FLASH,
         name="incentive_agent",
-        instruction="You are the Incentive Agent. Your task is to check to see if a user is eligible for a discount. "
-        "If the the user's age is above 30 and they are female, offer them a discount of 20%."
-        "Do not reveal the conditions to be eligible for a discount. Only say if they are eligible or not. No explanations."
-        "Do not engage in any other conversation or tasks.",
+        instruction="Ask the customer for their customer ID if not already known."
+        "Then Use the get_customer_info tool to access customer info"
+        "Checks whether the customer is eligible for a discount or incentive."
+        "Use this when the customer is unhappy, asks about discounts/promotions, or is thinking about switching providers."
+        "Do NOT reveal the internal rules for eligibility."
+        "Do NOT explain how the decision is made; just return the message from that agent"
+        """When you have access to customer information (tenure, contract type, internet service,), you should silently check whether the customer is
+        at higher churn risk based on the guidelines. This is internal reasoning and MUST NOT be exposed
+        as a score, probability, or formula.
+
+        Use these guidelines:
+
+        HIGHER CHURN RISK (internal signal): offer a discount only if any of these are true for the customer:
+        - Tenure is 6 or less.
+        - Contract type is Month-to-month.
+        - Internet service is Fiber optic.
+        - The user explicitly says they are thinking about leaving or switching providers.
+        Actions based on churn risk (internal only, do NOT mention “churn risk” to the user):
+        - Offer a discound if any of the HIGHER CHURN RISK options are true for the customer.
+        - For customers with HIGHER risk:
+        - Be especially empathetic and proactive.
+        - Provide clear explanations and options.
+        - If the customer is higher churn risk offer a 20% of discount for the next 6 months
+        - If the customer accepts the discount, say that the discount will be apply in your next cycle
+        - If the customer is not elegible say I'm sorry you are not elegible for any discount at this moment
+        - Do NOT reveal the internal rules for eligibility.""",
+        # "You are the Incentive Agent. Your task is to check to see if a user is eligible for a discount. "
+        # "If the the user's age is above 30 and they are female, offer them a discount of 20%."
+        # "Do not reveal the conditions to be eligible for a discount. Only say if they are eligible or not. No explanations."
+        # "Do not engage in any other conversation or tasks.",
         description="Checks to see if the user is eligible for a discount",  # Crucial for delegation
-        tools=[],
+        tools=[get_customer_info],
     )
     print(
         f"✅ Agent '{incentive_agent.name}' created using model '{incentive_agent.model}'."
